@@ -16,6 +16,7 @@ resource "google_project_iam_member" "drift_read" {
     "roles/viewer",
     "roles/iam.securityReviewer",
     "roles/iam.workloadIdentityPoolViewer",
+    "roles/serviceusage.serviceUsageConsumer",
   ])
 
   project = var.project_id
