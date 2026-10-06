@@ -35,3 +35,16 @@ resource "google_storage_bucket_iam_member" "drift_state_reader" {
   role   = "roles/storage.objectViewer"
   member = "serviceAccount:${google_service_account.drift.email}"
 }
+
+# `terraform init` always writes the lock object, even with -lock=false.
+# Scope write access to lock files only; the state itself stays read-only.
+resource "google_storage_bucket_iam_member" "drift_lock_writer" {
+  bucket = var.state_bucket
+  role   = "roles/storage.objectUser"
+  member = "serviceAccount:${google_service_account.drift.email}"
+
+  condition {
+    title      = "tflock-objects-only"
+    expression = "resource.name.endsWith('.tflock')"
+  }
+}
