@@ -1,0 +1,81 @@
+name: Terraform drift detection
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+env:
+  PROJECT_ID: pd-ed-gar-2026
+  REGION: us-central1
+  STATE_BUCKET: pd-ed-gar-2026-tfstate
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DRIFT_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${STATE_BUCKET}" \
+            -backend-config="prefix=tramites/platform"
+
+      - name: Terraform plan (drift check)
+        id: plan
+        run: |
+          # The image is ignored by Terraform; any valid value works for the plan.
+          IMAGE=$(gcloud run services describe tramites-api --project "$PROJECT_ID" --region "$REGION" \
+            --format='value(spec.template.spec.containers[0].image)')
+          set +e
+          terraform plan -input=false -lock=false -no-color -detailed-exitcode \
+            -var "image_uri=${IMAGE}" | tee plan.txt
+          code=${PIPESTATUS[0]}
+          echo "exitcode=${code}" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Report drift
+        if: steps.plan.outputs.exitcode == '2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "Terraform detected changes between the code and the real infrastructure."
+            echo
+            echo "Run: ${RUN_URL}"
+            echo
+            echo '```'
+            tail -c 50000 plan.txt
+            echo '```'
+          } > body.md
+          gh issue create --repo "${{ github.repository }}" \
+            --title "Infrastructure drift detected ($(date -u +%F\ %H:%M) UTC)" \
+            --body-file body.md
+          echo "::error::Infrastructure drift detected. See the created issue."
+          exit 1
+
+      - name: Fail on plan error
+        if: steps.plan.outputs.exitcode == '1'
+        run: exit 1
