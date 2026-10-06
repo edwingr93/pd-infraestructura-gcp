@@ -76,4 +76,6 @@ module "drift_detection" {
   infra_repository          = var.infra_repository
   billing_account_id        = var.billing_account_id
   state_bucket              = var.state_bucket
+
+  depends_on = [module.apis]
 }

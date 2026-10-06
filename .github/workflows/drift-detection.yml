@@ -38,7 +38,7 @@ jobs:
 
       - name: Terraform init
         run: |
-          terraform init -input=false \
+          terraform init -input=false -lock=false \
             -backend-config="bucket=${STATE_BUCKET}" \
             -backend-config="prefix=tramites/platform"
 
